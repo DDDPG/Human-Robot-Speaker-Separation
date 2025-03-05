@@ -4,6 +4,7 @@ import json
 import random
 import numpy as np
 from sklearn.model_selection import train_test_split
+import argparse
 
 def prepare_dataset(
     datapath,
@@ -14,30 +15,31 @@ def prepare_dataset(
     test_ratio=0.1,
     random_seed=42,
     skip_prep=False,
+    use_relative_paths=False,
 ):
     """
-    准备数据集，并按照指定比例划分训练集、验证集和测试集。
+    Prepare dataset and split it into training, validation, and test sets according to specified ratios.
 
     Arguments:
     ----------
-        datapath (str): 数据集路径
-        savepath (str): CSV文件保存路径
-        n_spks (int): 说话人数量
-        train_ratio (float): 训练集比例 (0-1)
-        valid_ratio (float): 验证集比例 (0-1)
-        test_ratio (float): 测试集比例 (0-1)
-        random_seed (int): 随机种子
-        skip_prep (bool): 是否跳过数据准备
+        datapath (str): Dataset path
+        savepath (str): CSV file save path
+        n_spks (int): Number of speakers
+        train_ratio (float): Training set ratio (0-1)
+        valid_ratio (float): Validation set ratio (0-1)
+        test_ratio (float): Test set ratio (0-1)
+        random_seed (int): Random seed
+        skip_prep (bool): Whether to skip data preparation
     """
     if skip_prep:
         return
     
-    # 确保比例之和为1
+    # Ensure the sum of ratios is 1
     assert abs(train_ratio + valid_ratio + test_ratio - 1.0) < 1e-6, \
-        "比例之和必须等于1"
+        "The sum of ratios must equal 1"
     
     if "HRSP2mix" in datapath:
-        # 读取所有metadata文件
+        # Read all metadata files
         metadata_list = []
         sample_paths = []
         idx = 0
@@ -56,11 +58,11 @@ def prepare_dataset(
         if len(metadata_list) == 0:
             raise ValueError("No metadata found")
         
-        # 设置随机种子
+        # Set random seed
         random.seed(random_seed)
         np.random.seed(random_seed)
         
-        # 划分数据集
+        # Split dataset
         train_valid_paths, test_paths = train_test_split(
             sample_paths,
             test_size=test_ratio,
@@ -73,26 +75,21 @@ def prepare_dataset(
             random_state=random_seed
         )
         
-        # 创建数据集目录结构
-        for set_type in ["train", "valid", "test"]:
-            for folder in ["mixture", "source1", "source2"]:
-                os.makedirs(os.path.join(datapath, set_type, folder), exist_ok=True)
-        
-        # 移动文件到对应目录
+        # Move files to corresponding directories
         path_sets = {
             "train": train_paths,
             "valid": valid_paths,
             "test": test_paths
         }
         
-        # 移动文件并更新metadata
+        # Move files and update metadata
         set_metadata = {"train": [], "valid": [], "test": []}
         for set_type, paths in path_sets.items():
             for path in paths:
                 idx = sample_paths.index(path)
                 set_metadata[set_type].append(metadata_list[idx])
                 
-                # # 移动音频文件
+                # # Move audio files
                 # base_name = os.path.basename(path)
                 # for src, dst in [
                 #     (os.path.join(path, "mixture.wav"), 
@@ -105,14 +102,15 @@ def prepare_dataset(
                 #     if os.path.exists(src):
                 #         os.system(f"cp {src} {dst}")
         
-        # 为每个集合创建CSV文件
+        # Create CSV files for each set
         for set_type in ["train", "valid", "test"]:
             create_custom_dataset(
                 datapath,
                 savepath,
                 set_metadata[set_type],
                 dataset_name="HRSP",
-                set_types=[set_type]
+                set_types=[set_type],
+                use_relative_paths=use_relative_paths
             )
     else:
         raise ValueError("Unknown dataset")
@@ -129,6 +127,7 @@ def create_custom_dataset(
         "source2": "source2",
         "mixture": "mixture",
     },
+    use_relative_paths=False,
 ):
     """
     This function creates the csv file for a custom source separation dataset
@@ -136,18 +135,18 @@ def create_custom_dataset(
     os.makedirs(savepath, exist_ok=True)
 
     for set_type in set_types:
-        # 直接从metadata获取音频路径
-        mix_fl_paths = [meta["merged_audio_path"] for meta in metadata_list]
-        s1_fl_paths = [meta["human_audio_path"] for meta in metadata_list]
-        s2_fl_paths = [meta["robot_audio_path"] for meta in metadata_list]
+        # Get audio paths directly from metadata
+        mix_fl_paths = [os.path.join(os.getcwd() + meta["merged_audio_path"]) for meta in metadata_list]
+        s1_fl_paths = [os.path.join(os.getcwd() + meta["human_audio_path"]) for meta in metadata_list]
+        s2_fl_paths = [os.path.join(os.getcwd() + meta["robot_audio_path"]) for meta in metadata_list]
 
-        # 确保所有路径都存在
+        # Ensure all paths exist
         for paths in [mix_fl_paths, s1_fl_paths, s2_fl_paths]:
             for path in paths:
                 if not os.path.exists(path):
                     raise FileNotFoundError(f"Audio file not found: {path}")
 
-        # 先定义基本的 CSV 列
+        # Define basic CSV columns first
         base_csv_columns = [
             "ID",
             "duration",
@@ -165,16 +164,16 @@ def create_custom_dataset(
             "noise_wav_opts",
         ]
 
-        # 获取 metadata 中的所有键
+        # Get all keys from metadata
         all_metadata_keys = set()
         for metadata in metadata_list:
             all_metadata_keys.update(metadata.keys())
 
-        # 移除可能重复的键
+        # Remove potentially duplicate keys
         if "background_noise_name" in all_metadata_keys:
             all_metadata_keys.remove("background_noise_name")
 
-        # 合并列名
+        # Merge column names
         csv_columns = base_csv_columns + list(all_metadata_keys)
 
         with open(
@@ -192,31 +191,67 @@ def create_custom_dataset(
                 row = {
                     "ID": i,
                     "duration": 1.0,
-                    "mix_wav": os.path.abspath(mix_path),
+                    "mix_wav": os.path.abspath(mix_path) if not use_relative_paths else os.path.relpath(mix_path, start=datapath),
                     "mix_wav_format": "wav",
                     "mix_wav_opts": None,
-                    "human_wav": os.path.abspath(human_path),
+                    "human_wav": os.path.abspath(human_path) if not use_relative_paths else os.path.relpath(human_path, start=datapath),
                     "human_wav_format": "wav",
                     "human_wav_opts": None,
-                    "robot_wav": os.path.abspath(robot_path),
+                    "robot_wav": os.path.abspath(robot_path) if not use_relative_paths else os.path.relpath(robot_path, start=datapath),
                     "robot_wav_format": "wav",
                     "robot_wav_opts": None,
                     "noise_wav": background_noise_name,
                     "noise_wav_format": "wav",
                     "noise_wav_opts": None,
                 }
-                # 补全 metadata 中的其他字段
+                # Complete other fields from metadata
                 for key in all_metadata_keys:
                     if key in metadata:
                         row[key] = metadata[key]
                 writer.writerow(row)
 
 if __name__ == "__main__":
-    # print(os.getcwd())
-    # print(os.path.exists(path=os.path.join(os.getcwd(), "data/HRSP2mix/raw/")))
-    prepare_dataset(
-        datapath=os.path.join(os.getcwd(), "data/HRSP2mix/raw/"),
-        savepath=os.path.join(os.getcwd(), "data/HRSP2mix/processed/"),
-        n_spks=2,
-        skip_prep=False,
-    )
+    
+    # Create parser and add arguments
+    parser = argparse.ArgumentParser(description='Prepare dataset with path options')
+    parser.add_argument('--path-type', choices=['abs', 'rel'], default='rel',
+                       help='Use absolute (abs) or relative (rel) paths in CSV files')
+    args = parser.parse_args()
+    
+    # Convert path type argument to boolean
+    use_relative_paths = (args.path_type == 'rel')
+    
+    # set cwd to parent directory to this file, absolute path
+    os.chdir(os.path.dirname(os.path.dirname(__file__)))
+    
+    data_configs = [
+        {
+            "datapath": os.path.join(os.getcwd(), "data/HRSP2mix_8k/raw/"),
+            "savepath": os.path.join(os.getcwd(), "data/HRSP2mix_8k/processed_raw/")
+        },
+        {
+            "datapath": os.path.join(os.getcwd(), "data/HRSP2mix_8k/clean/"),
+            "savepath": os.path.join(os.getcwd(), "data/HRSP2mix_8k/processed_clean/")
+        },
+        {
+            "datapath": os.path.join(os.getcwd(), "data/HRSP2mix_16k/raw/"),
+            "savepath": os.path.join(os.getcwd(), "data/HRSP2mix_16k/processed_raw/")
+        },
+        {
+            "datapath": os.path.join(os.getcwd(), "data/HRSP2mix_16k/clean/"),
+            "savepath": os.path.join(os.getcwd(), "data/HRSP2mix_16k/processed_clean/")
+        }
+    ]
+
+    for config in data_configs:
+        if os.path.exists(config["datapath"]):
+            print(f"Processing {config['datapath']}")
+            prepare_dataset(
+                datapath=config["datapath"],
+                savepath=config["savepath"],
+                n_spks=2,
+                skip_prep=False,
+                use_relative_paths=use_relative_paths
+            )
+        else:
+            print(f"Directory not found: {config['datapath']}")
