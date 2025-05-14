@@ -255,3 +255,52 @@ if __name__ == "__main__":
             )
         else:
             print(f"Directory not found: {config['datapath']}")
+            
+if __name__ == "__main__":
+    
+    # Create parser and add arguments
+    parser = argparse.ArgumentParser(description='Prepare dataset with path options')
+    parser.add_argument('--path-type', choices=['abs', 'rel'], default='rel',
+                       help='Use absolute (abs) or relative (rel) paths in CSV files')
+    args = parser.parse_args()
+    
+    # Convert path type argument to boolean
+    use_relative_paths = (args.path_type == 'rel')
+    
+    # set cwd to parent directory to this file, absolute path
+    os.chdir(os.path.dirname(os.path.dirname(__file__)))
+    
+    data_configs = [
+        {
+            "datapath": os.path.join(os.getcwd(), "data/HRSP2mix_8k/raw/"),
+            "savepath": os.path.join(os.getcwd(), "data/HRSP2mix_8k/processed_raw/")
+        },
+        {
+            "datapath": os.path.join(os.getcwd(), "data/HRSP2mix_8k/clean/"),
+            "savepath": os.path.join(os.getcwd(), "data/HRSP2mix_8k/processed_clean/")
+        },
+        {
+            "datapath": os.path.join(os.getcwd(), "data/HRSP2mix_16k/raw/"),
+            "savepath": os.path.join(os.getcwd(), "data/HRSP2mix_16k/processed_raw/")
+        },
+        {
+            "datapath": os.path.join(os.getcwd(), "data/HRSP2mix_16k/clean/"),
+            "savepath": os.path.join(os.getcwd(), "data/HRSP2mix_16k/processed_clean/")
+        }
+    ]
+    
+    for config in data_configs:
+        if os.path.exists(config["datapath"]):
+            print(f"Processing {config['datapath']}")
+            prepare_dataset(
+                datapath=config["datapath"],
+                savepath=config["savepath"],
+                n_spks=2,
+                skip_prep=False,
+                use_relative_paths=use_relative_paths
+            )
+        else:
+            print(f"Directory not found: {config['datapath']}")
+            
+    
+    
