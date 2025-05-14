@@ -80,6 +80,7 @@ if [[ "$sample_rate" == "8k" || "$sample_rate" == "all" ]]; then
             rm temp_8k_clean.tar.gz
         fi
     fi
+fi
 
 if [[ "$sample_rate" == "16k" || "$sample_rate" == "all" ]]; then
     
